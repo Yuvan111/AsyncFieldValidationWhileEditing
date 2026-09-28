@@ -1,0 +1,206 @@
+@page "/signup"
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Components.Forms
+@using ServerApp.Components.Models
+@using ServerApp.Components.Services
+@inject IAvailabilityChecker AvailabilityChecker
+
+<PageTitle>Sign up</PageTitle>
+
+<h1>Sign up</h1>
+
+<p class="text-muted">
+    This sample checks username and email availability while you type.
+</p>
+
+<EditForm EditContext="editContext" OnValidSubmit="HandleValidSubmit" OnInvalidSubmit="HandleInvalidSubmit" FormName="signup-form">
+    <DataAnnotationsValidator />
+    <ValidationSummary />
+
+    <div class="mb-3">
+        <label class="form-label" for="username">Username</label>
+        <input id="username" class="form-control" value="@model.Username" @oninput="OnUsernameInput" />
+        <div class="form-text">
+            @if (IsPending(nameof(SignUpModel.Username)))
+            {
+                <span class="text-primary">Checking username availability…</span>
+            }
+            else
+            {
+                <span>Try admin, guest, or a new username.</span>
+            }
+        </div>
+        <ValidationMessage For="() => model.Username" />
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label" for="email">Email</label>
+        <input id="email" class="form-control" value="@model.Email" @oninput="OnEmailInput" />
+        <div class="form-text">
+            @if (IsPending(nameof(SignUpModel.Email)))
+            {
+                <span class="text-primary">Checking email availability…</span>
+            }
+            else
+            {
+                <span>Try taken@example.com or a new email address.</span>
+            }
+        </div>
+        <ValidationMessage For="() => model.Email" />
+    </div>
+
+    <button class="btn btn-primary" type="submit">Submit</button>
+</EditForm>
+
+@if (!string.IsNullOrWhiteSpace(statusMessage))
+{
+    <div class="alert @(statusKind == "success" ? "alert-success" : "alert-danger") mt-3">@statusMessage</div>
+}
+
+
+@code {
+    private readonly SignUpModel model = new();
+    private readonly EditContext editContext;
+    private readonly ValidationMessageStore messageStore;
+    private readonly Dictionary<FieldIdentifier, CancellationTokenSource> pendingChecks = new();
+    private readonly Dictionary<FieldIdentifier, int> versions = new();
+    private readonly HashSet<FieldIdentifier> pendingFields = new();
+    private string? statusMessage;
+    private string statusKind = "success";
+
+    public SignUp()
+    {
+        editContext = new EditContext(model);
+        messageStore = new ValidationMessageStore(editContext);
+        editContext.OnFieldChanged += HandleFieldChanged;
+    }
+
+    private void HandleFieldChanged(object? sender, FieldChangedEventArgs e)
+    {
+        if (e.FieldIdentifier.Model != model)
+        {
+            return;
+        }
+
+        _ = ValidateFieldAsync(e.FieldIdentifier);
+    }
+
+    private void OnUsernameInput(ChangeEventArgs e)
+    {
+        model.Username = e.Value?.ToString() ?? string.Empty;
+        editContext.NotifyFieldChanged(new FieldIdentifier(model, nameof(SignUpModel.Username)));
+    }
+
+    private void OnEmailInput(ChangeEventArgs e)
+    {
+        model.Email = e.Value?.ToString() ?? string.Empty;
+        editContext.NotifyFieldChanged(new FieldIdentifier(model, nameof(SignUpModel.Email)));
+    }
+
+    private async Task ValidateFieldAsync(FieldIdentifier fieldIdentifier)
+    {
+        messageStore.Clear(fieldIdentifier);
+        editContext.NotifyValidationStateChanged();
+
+        var value = GetValue(fieldIdentifier);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            SetPending(fieldIdentifier, false);
+            return;
+        }
+
+        var version = versions.TryGetValue(fieldIdentifier, out var currentVersion) ? currentVersion + 1 : 1;
+        versions[fieldIdentifier] = version;
+
+        if (pendingChecks.TryGetValue(fieldIdentifier, out var previousCts))
+        {
+            previousCts.Cancel();
+            previousCts.Dispose();
+        }
+
+        var cts = new CancellationTokenSource();
+        pendingChecks[fieldIdentifier] = cts;
+        SetPending(fieldIdentifier, true);
+
+        try
+        {
+            var available = fieldIdentifier.FieldName switch
+            {
+                nameof(SignUpModel.Username) => await AvailabilityChecker.IsUsernameAvailableAsync(value, cts.Token),
+                nameof(SignUpModel.Email) => await AvailabilityChecker.IsEmailAvailableAsync(value, cts.Token),
+                _ => true,
+            };
+
+            if (cts.IsCancellationRequested || versions.GetValueOrDefault(fieldIdentifier) != version)
+            {
+                return;
+            }
+
+            if (!available)
+            {
+                messageStore.Add(fieldIdentifier, $"{fieldIdentifier.FieldName} is already taken.");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
+            if (versions.GetValueOrDefault(fieldIdentifier) == version)
+            {
+                SetPending(fieldIdentifier, false);
+                pendingChecks.Remove(fieldIdentifier);
+            }
+
+            editContext.NotifyValidationStateChanged();
+        }
+    }
+
+    private string GetValue(FieldIdentifier fieldIdentifier) => fieldIdentifier.FieldName switch
+    {
+        nameof(SignUpModel.Username) => model.Username,
+        nameof(SignUpModel.Email) => model.Email,
+        _ => string.Empty,
+    };
+
+    private void SetPending(FieldIdentifier fieldIdentifier, bool isPending)
+    {
+        if (isPending)
+        {
+            pendingFields.Add(fieldIdentifier);
+        }
+        else
+        {
+            pendingFields.Remove(fieldIdentifier);
+        }
+
+        InvokeAsync(StateHasChanged);
+    }
+
+    private bool IsPending(string fieldName)
+        => pendingFields.Contains(new FieldIdentifier(model, fieldName));
+
+    private Task HandleValidSubmit()
+    {
+        statusKind = "success";
+        statusMessage = $"Submit succeeded for {model.Username} and {model.Email}.";
+        return Task.CompletedTask;
+    }
+
+    private void HandleInvalidSubmit(EditContext _)
+    {
+        statusKind = "danger";
+        statusMessage = "Submit failed. Fix the validation messages above.";
+    }
+
+    public void Dispose()
+    {
+        editContext.OnFieldChanged -= HandleFieldChanged;
+
+        foreach (var cts in pendingChecks.Values)
+        {
+            cts.Cancel();
+            cts.Dispose();
+        }
+    }
+}
