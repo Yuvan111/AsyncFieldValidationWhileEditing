@@ -2,8 +2,7 @@
 @using System.ComponentModel.DataAnnotations
 @using Microsoft.AspNetCore.Components.Forms
 @using ServerApp.Components.Models
-@using ServerApp.Components.Services
-@inject IAvailabilityChecker AvailabilityChecker
+@implements IDisposable
 
 <PageTitle>Sign up</PageTitle>
 
@@ -19,15 +18,19 @@
 
     <div class="mb-3">
         <label class="form-label" for="username">Username</label>
-        <input id="username" class="form-control" value="@model.Username" @oninput="OnUsernameInput" />
+        <input id="username" class="form-control" value="@model.Username" @oninput="OnUsernameInput" autocomplete="off" />
         <div class="form-text">
-            @if (IsPending(nameof(SignUpModel.Username)))
+            @if (editContext.IsValidationPending(usernameField))
             {
                 <span class="text-primary">Checking username availability…</span>
             }
+            else if (editContext.IsValidationFaulted(usernameField))
+            {
+                <span class="text-danger">Username availability could not be checked. Edit the value to retry.</span>
+            }
             else
             {
-                <span>Try admin, guest, or a new username.</span>
+                <span>Try admin for taken, error for faulted, or a new username.</span>
             }
         </div>
         <ValidationMessage For="() => model.Username" />
@@ -35,15 +38,19 @@
 
     <div class="mb-3">
         <label class="form-label" for="email">Email</label>
-        <input id="email" class="form-control" value="@model.Email" @oninput="OnEmailInput" />
+        <input id="email" class="form-control" value="@model.Email" @oninput="OnEmailInput"  />
         <div class="form-text">
-            @if (IsPending(nameof(SignUpModel.Email)))
+            @if (editContext.IsValidationPending(emailField))
             {
                 <span class="text-primary">Checking email availability…</span>
             }
+            else if (editContext.IsValidationFaulted(emailField))
+            {
+                <span class="text-danger">Email availability could not be checked. Edit the value to retry.</span>
+            }
             else
             {
-                <span>Try taken@example.com or a new email address.</span>
+                <span>Try taken@example.com for taken, error@example.com for faulted, or a new email.</span>
             }
         </div>
         <ValidationMessage For="() => model.Email" />
@@ -61,124 +68,33 @@
 @code {
     private readonly SignUpModel model = new();
     private readonly EditContext editContext;
-    private readonly ValidationMessageStore messageStore;
-    private readonly Dictionary<FieldIdentifier, CancellationTokenSource> pendingChecks = new();
-    private readonly Dictionary<FieldIdentifier, int> versions = new();
-    private readonly HashSet<FieldIdentifier> pendingFields = new();
+    private readonly FieldIdentifier usernameField;
+    private readonly FieldIdentifier emailField;
     private string? statusMessage;
     private string statusKind = "success";
 
     public SignUp()
     {
         editContext = new EditContext(model);
-        messageStore = new ValidationMessageStore(editContext);
-        editContext.OnFieldChanged += HandleFieldChanged;
-    }
-
-    private void HandleFieldChanged(object? sender, FieldChangedEventArgs e)
-    {
-        if (e.FieldIdentifier.Model != model)
-        {
-            return;
-        }
-
-        _ = ValidateFieldAsync(e.FieldIdentifier);
+        usernameField = new FieldIdentifier(model, nameof(SignUpModel.Username));
+        emailField = new FieldIdentifier(model, nameof(SignUpModel.Email));
+        editContext.OnValidationStateChanged += HandleValidationStateChanged;
     }
 
     private void OnUsernameInput(ChangeEventArgs e)
     {
         model.Username = e.Value?.ToString() ?? string.Empty;
-        editContext.NotifyFieldChanged(new FieldIdentifier(model, nameof(SignUpModel.Username)));
+        editContext.NotifyFieldChanged(usernameField);
     }
 
     private void OnEmailInput(ChangeEventArgs e)
     {
         model.Email = e.Value?.ToString() ?? string.Empty;
-        editContext.NotifyFieldChanged(new FieldIdentifier(model, nameof(SignUpModel.Email)));
+        editContext.NotifyFieldChanged(emailField);
     }
 
-    private async Task ValidateFieldAsync(FieldIdentifier fieldIdentifier)
-    {
-        messageStore.Clear(fieldIdentifier);
-        editContext.NotifyValidationStateChanged();
-
-        var value = GetValue(fieldIdentifier);
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            SetPending(fieldIdentifier, false);
-            return;
-        }
-
-        var version = versions.TryGetValue(fieldIdentifier, out var currentVersion) ? currentVersion + 1 : 1;
-        versions[fieldIdentifier] = version;
-
-        if (pendingChecks.TryGetValue(fieldIdentifier, out var previousCts))
-        {
-            previousCts.Cancel();
-            previousCts.Dispose();
-        }
-
-        var cts = new CancellationTokenSource();
-        pendingChecks[fieldIdentifier] = cts;
-        SetPending(fieldIdentifier, true);
-
-        try
-        {
-            var available = fieldIdentifier.FieldName switch
-            {
-                nameof(SignUpModel.Username) => await AvailabilityChecker.IsUsernameAvailableAsync(value, cts.Token),
-                nameof(SignUpModel.Email) => await AvailabilityChecker.IsEmailAvailableAsync(value, cts.Token),
-                _ => true,
-            };
-
-            if (cts.IsCancellationRequested || versions.GetValueOrDefault(fieldIdentifier) != version)
-            {
-                return;
-            }
-
-            if (!available)
-            {
-                messageStore.Add(fieldIdentifier, $"{fieldIdentifier.FieldName} is already taken.");
-            }
-        }
-        catch (OperationCanceledException)
-        {
-        }
-        finally
-        {
-            if (versions.GetValueOrDefault(fieldIdentifier) == version)
-            {
-                SetPending(fieldIdentifier, false);
-                pendingChecks.Remove(fieldIdentifier);
-            }
-
-            editContext.NotifyValidationStateChanged();
-        }
-    }
-
-    private string GetValue(FieldIdentifier fieldIdentifier) => fieldIdentifier.FieldName switch
-    {
-        nameof(SignUpModel.Username) => model.Username,
-        nameof(SignUpModel.Email) => model.Email,
-        _ => string.Empty,
-    };
-
-    private void SetPending(FieldIdentifier fieldIdentifier, bool isPending)
-    {
-        if (isPending)
-        {
-            pendingFields.Add(fieldIdentifier);
-        }
-        else
-        {
-            pendingFields.Remove(fieldIdentifier);
-        }
-
-        InvokeAsync(StateHasChanged);
-    }
-
-    private bool IsPending(string fieldName)
-        => pendingFields.Contains(new FieldIdentifier(model, fieldName));
+    private void HandleValidationStateChanged(object? sender, ValidationStateChangedEventArgs e)
+        => _ = InvokeAsync(StateHasChanged);
 
     private Task HandleValidSubmit()
     {
@@ -195,12 +111,6 @@
 
     public void Dispose()
     {
-        editContext.OnFieldChanged -= HandleFieldChanged;
-
-        foreach (var cts in pendingChecks.Values)
-        {
-            cts.Cancel();
-            cts.Dispose();
-        }
+        editContext.OnValidationStateChanged -= HandleValidationStateChanged;
     }
 }

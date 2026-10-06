@@ -2,6 +2,9 @@ namespace ServerApp.Components.Services;
 
 public sealed class MockAvailabilityChecker : IAvailabilityChecker
 {
+    private const string FaultingUsername = "error";
+    private const string FaultingEmail = "error@example.com";
+
     private static readonly HashSet<string> TakenUsernames = new(StringComparer.OrdinalIgnoreCase)
     {
         "admin",
@@ -19,13 +22,27 @@ public sealed class MockAvailabilityChecker : IAvailabilityChecker
 
     public async Task<bool> IsUsernameAvailableAsync(string username, CancellationToken cancellationToken)
     {
-        await Task.Delay(TimeSpan.FromMilliseconds(1200), cancellationToken);
-        return !TakenUsernames.Contains(username.Trim());
+        await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken);
+
+        var normalizedUsername = username.Trim();
+        if (string.Equals(normalizedUsername, FaultingUsername, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("The username availability service is unavailable.");
+        }
+
+        return !TakenUsernames.Contains(normalizedUsername);
     }
 
     public async Task<bool> IsEmailAvailableAsync(string email, CancellationToken cancellationToken)
     {
-        await Task.Delay(TimeSpan.FromMilliseconds(500), cancellationToken);
-        return !TakenEmails.Contains(email.Trim());
+        await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+
+        var normalizedEmail = email.Trim();
+        if (string.Equals(normalizedEmail, FaultingEmail, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("The email availability service is unavailable.");
+        }
+
+        return !TakenEmails.Contains(normalizedEmail);
     }
 }

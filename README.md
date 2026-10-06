@@ -1,6 +1,6 @@
 # Async Field Validation While Editing in Blazor
 
-This repository demonstrates how to implement asynchronous field-level validation (e.g., checking username and email availability) in Blazor while the user is actively typing, complete with debouncing and pending status indicators.
+This repository demonstrates .NET 11 asynchronous field validation in Blazor while the user edits a sign-up form.
 
 Both **Blazor Server** and **Blazor WebAssembly (WASM)** implementations are provided.
 
@@ -17,10 +17,19 @@ Both **Blazor Server** and **Blazor WebAssembly (WASM)** implementations are pro
 
 ## Key Features
 
-- **Asynchronous Validation**: Validates user input (such as unique username and email availability) asynchronously against a service (`IAvailabilityChecker`).
-- **Debounced Input**: Uses debouncing on `@oninput` events to prevent excessive validation calls while the user types.
-- **Visual Feedback**: Displays pending state indicators (e.g., *"Checking username availability…"*), validation error messages via `ValidationMessageStore`, and success messages upon submission.
-- **Form Integration**: Integrates directly with Blazor's `EditContext`, `DataAnnotationsValidator`, and `ValidationSummary`.
+- Uses `AsyncValidationAttribute` with `DataAnnotationsValidator`.
+- Displays framework-managed pending and faulted states through `EditContext`.
+- Cancels and supersedes an outstanding field check when the value changes.
+- Allows username and email checks to run and settle independently.
+
+## Values to Try
+
+| Field | Taken | Faulted |
+|---|---|---|
+| Username | `admin` | `error` |
+| Email | `taken@example.com` | `error@example.com` |
+
+Username checks take 3 seconds and email checks take 2 seconds so pending and overlapping states are easy to observe.
 
 ---
 
