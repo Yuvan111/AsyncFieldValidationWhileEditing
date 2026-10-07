@@ -26,10 +26,10 @@ Both **Blazor Server** and **Blazor WebAssembly (WASM)** implementations are pro
 
 | Field | Taken | Faulted |
 |---|---|---|
-| Username | `admin` | `error` |
+| Username | `admin` or `takenuser` | `error` |
 | Email | `taken@example.com` | `error@example.com` |
 
-Username checks take 3 seconds and email checks take 2 seconds so pending and overlapping states are easy to observe.
+Most username checks take 3 seconds and email checks take 2 seconds. For the same-field supersession scenario, enter `takenuser` (5 seconds), then replace it with `newuser` (1 second).
 
 ---
 

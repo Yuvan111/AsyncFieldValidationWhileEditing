@@ -4,6 +4,8 @@ public sealed class MockAvailabilityChecker : IAvailabilityChecker
 {
     private const string FaultingUsername = "error";
     private const string FaultingEmail = "error@example.com";
+    private const string SlowTakenUsername = "takenuser";
+    private const string FastAvailableUsername = "newuser";
 
     private static readonly HashSet<string> TakenUsernames = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -22,9 +24,16 @@ public sealed class MockAvailabilityChecker : IAvailabilityChecker
 
     public async Task<bool> IsUsernameAvailableAsync(string username, CancellationToken cancellationToken)
     {
-        await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken);
-
         var normalizedUsername = username.Trim();
+        var delay = normalizedUsername switch
+        {
+            SlowTakenUsername => TimeSpan.FromSeconds(5),
+            FastAvailableUsername => TimeSpan.FromSeconds(1),
+            _ => TimeSpan.FromSeconds(3),
+        };
+
+        await Task.Delay(delay, cancellationToken);
+
         if (string.Equals(normalizedUsername, FaultingUsername, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException("The username availability service is unavailable.");

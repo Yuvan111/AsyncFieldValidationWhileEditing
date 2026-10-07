@@ -31,7 +31,7 @@
             }
             else
             {
-                <span>Try admin for taken, error for faulted, or a new username.</span>
+                <span>Try takenuser then newuser for slow-to-fast replacement, or error for faulted.</span>
             }
         </div>
         <ValidationMessage For="() => model.Username" />
@@ -39,7 +39,7 @@
 
     <div class="mb-3">
         <label class="form-label" for="email">Email</label>
-        <input id="email" class="form-control" value="@model.Email" @oninput="OnEmailInput" />
+        <input id="email" class="form-control" value="@model.Email" @oninput="OnEmailInput" autocomplete="off" />
         <div class="form-text">
             @if (editContext.IsValidationPending(emailField))
             {
